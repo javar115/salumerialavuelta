@@ -110,7 +110,7 @@ async function vAdm(){
   const x=p=>{const f=p.perfiles||{};return `<br>${esc(f.nombre_completo)} · ${esc(f.direccion)}<br>Tel ${esc(f.telefono)} · WhatsApp ${esc(f.whatsapp)}<br><select class="np" onchange="estado('${p.id}',this.value)">${['enviado','entregado','cancelado'].map(e=>`<option ${p.estado==e?'selected':''}>${e}</option>`).join('')}</select> <button class="s np" onclick="borrar('${p.id}')">Eliminar</button>`};
   $('#v').innerHTML=`<h2>Pedidos recibidos</h2>${(data||[]).map(p=>detalle(p,x(p))).join('')||'<p>Sin pedidos.</p>'}
   <h2>Agregar producto</h2><div class="card"><input id="pc" placeholder="Código (ej. Q0001A)"><select id="pk">${opts(S.cats,0,'Categoría')}</select><select id="pm">${opts(S.marcas,0,'Marca')}</select><input id="pf" placeholder="Familia"><input id="pn" placeholder="Producto"><input id="pu" placeholder="Unidad (ej. 100 g)"><input id="pp" type="number" step="0.01" placeholder="Precio con IVA"><button onclick="addProd()">Guardar producto</button></div>
-  <h2>Importar desde Excel</h2><div class="card"><p>Columnas: <b>Código, Marca, Familia, Producto, Unidad, Precio</b> (con IVA). Categoría es opcional: si falta, se toma de la primera letra del código (Q quesos, C chacinados, E encurtidos). Si el código ya existe, se actualiza.</p><input type="file" accept=".xlsx,.xls,.csv" onchange="importar(this)"></div>
+  <h2>Importar desde Excel</h2><div class="card"><p>Acepta tu planilla de consumidor final (ID, CODIGO, T, MARCA, FAMILIA, PRODUCTO, PESO KG/UN, $/KG FINAL): el precio de cada unidad es peso × precio por kg final, y los productos con peso 0 quedan ocultos. También acepta columnas simples: Código, Marca, Familia, Producto, Unidad, Precio. Si el código ya existe, se actualiza.</p><input type="file" accept=".xlsx,.xls,.csv" onchange="importar(this)"></div>
   <button class="s" onclick="addAux('categorias')">+ Categoría</button> <button class="s" onclick="addAux('marcas')">+ Marca</button>
   <h2>Productos</h2>${S.prods.map(p=>`<div class="card row"><div>${esc(p.codigo)} · ${esc(p.nombre)}<br>${esc(p.unidad)} · ${money(p.precio)} ${p.activo?'':'(oculto)'}</div><div><button class="s" onclick="precio(${p.id})">Precio</button> <button class="s" onclick="prodUp(${p.id},{activo:${!p.activo}})">${p.activo?'Ocultar':'Mostrar'}</button></div></div>`).join('')}`;
 }
@@ -136,14 +136,25 @@ async function importar(inp){
     const gid=async(map,t,n)=>{n=String(n).trim();if(!n)return null;const k=norm(n);if(!map.has(k)){const {data,error}=await sb.from(t).insert({nombre:n}).select().single();if(error)throw error;map.set(k,data.id)}return map.get(k)};
     const out=new Map();let omit=0;
     for(const r of rows){
-      const codigo=String(g(r,'codigo','id','cod')).trim(),nombre=String(g(r,'producto','nombre','descripcion')).trim(),precio=num(g(r,'precio','precio con iva','precio final'));
+      let codigo,nombre=String(g(r,'producto','nombre','descripcion')).trim(),precio,unidad,activo=true,cn;
+      if(g(r,'$/kg final')!==''||g(r,'peso kg/un')!==''){
+        const id=String(g(r,'id')).trim().toUpperCase(),t=String(g(r,'t')).trim().toUpperCase(),n=num(g(r,'codigo')),peso=num(g(r,'peso kg/un'))||0;
+        codigo=isNaN(n)?'':id+String(Math.round(n)).padStart(4,'0')+t;
+        activo=peso>0;
+        unidad=activo?(peso<1?Math.round(peso*1000)+' g':peso+' kg'):'a definir';
+        precio=activo?Math.round(peso*num(g(r,'$/kg final'))*100)/100:0;
+        cn=letra[id.toLowerCase()]||'';
+      }else{
+        codigo=String(g(r,'codigo','id','cod')).trim();precio=num(g(r,'precio','precio con iva','precio final'));
+        unidad=String(g(r,'unidad','unidad de medida','presentacion')).trim()||'1 unidad';
+        cn=String(g(r,'categoria'))||letra[codigo[0]?.toLowerCase()]||'';
+      }
       if(!codigo||!nombre||!(precio>=0)){omit++;continue}
-      const cn=String(g(r,'categoria'))||letra[codigo[0].toLowerCase()]||'';
-      out.set(codigo,{codigo,nombre,precio,categoria_id:await gid(cats,'categorias',cn),marca_id:await gid(mar,'marcas',g(r,'marca')),familia:String(g(r,'familia')).trim(),unidad:String(g(r,'unidad','unidad de medida','presentacion')).trim()||'1 unidad',activo:true});
+      out.set(codigo,{codigo,nombre,precio,categoria_id:await gid(cats,'categorias',cn),marca_id:await gid(mar,'marcas',g(r,'marca')),familia:String(g(r,'familia')).trim(),unidad,activo});
     }
     const lista=[...out.values()];
     for(let i=0;i<lista.length;i+=200){const {error}=await sb.from('productos').upsert(lista.slice(i,i+200),{onConflict:'codigo'});if(error)throw error}
-    alert('Productos importados: '+lista.length+(omit?'. Filas omitidas (sin código, producto o precio): '+omit:''));
+    alert('Productos importados: '+lista.length+' ('+lista.filter(x=>x.activo).length+' a la venta, el resto oculto)'+(omit?'. Filas omitidas (sin código, producto o precio): '+omit:''));
     await cargar();render();
   }catch(e){alert('No se pudo importar: '+(e.message||e))}
 }
