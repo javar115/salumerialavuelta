@@ -18,6 +18,7 @@ nav{position:fixed;bottom:0;left:0;right:0;background:#fff;display:flex;border-t
 nav button{flex:1;border-radius:0;background:#fff;color:#222;font-size:15px;margin:0}
 nav button.on{background:var(--c);color:#fff}
 .aviso{background:#fff3cd;padding:8px;border-radius:8px;font-size:15px}
+.b{display:inline-block;background:#eee;color:#222;padding:12px;border-radius:10px;font-weight:600;cursor:pointer;margin:4px 0}.th{width:72px;height:72px;object-fit:cover;border-radius:8px;flex:none}.g{display:flex;gap:10px;align-items:center}
 @media print{nav,header button,.np{display:none}}
 </style></head>
 <body><div id="app"></div>
@@ -42,11 +43,25 @@ async function init(){
   S.perfil=p; await cargar(); render();
 }
 function login(){app.innerHTML=`<header><span><img src="logo.png" alt="">Salumería La Vuelta</span></header><main><img class="logo" src="logo.png" alt="Tienda virtual La Vuelta"><div class="card"><h2>Bienvenido</h2><p>Entrá con tu cuenta de Google para hacer tu pedido.</p><button onclick="sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin}})">Entrar con Google</button></div></main>`}
-function alta(){app.innerHTML=`<header><span><img src="logo.png" alt="">Salumería La Vuelta</span></header><main><div class="card"><h2>Tus datos</h2><input id="n" placeholder="Nombre completo"><input id="d" placeholder="Dirección"><input id="t" placeholder="Teléfono" type="tel"><input id="w" placeholder="WhatsApp" type="tel"><button onclick="guardar()">Guardar y continuar</button></div></main>`}
+async function alta(){
+  const r=await Promise.all(['provincias','zonas','partidos','localidades'].map(t=>sb.from(t).select('*').order('nombre')));
+  S.U={prov:r[0].data||[],zona:r[1].data||[],part:r[2].data||[],loc:r[3].data||[]};
+  app.innerHTML=`<header><span><img src="logo.png" alt="">Salumería La Vuelta</span></header><main><div class="card"><h2>Tus datos</h2><input id="n" placeholder="Nombre completo"><input id="d" placeholder="Dirección (calle y número)"><select id="up" onchange="cas('up')"></select><select id="uz" onchange="cas('uz')"></select><select id="ua" onchange="cas('ua')"></select><select id="ul"></select><input id="t" placeholder="Teléfono" type="tel"><input id="w" placeholder="WhatsApp" type="tel"><button onclick="guardar()">Guardar y continuar</button></div></main>`;
+  cas('init');
+}
+function cas(from){
+  const U=S.U,v=i=>+$('#'+i).value||0;
+  const fill=(id,list,lab)=>{const e=$('#'+id);e.innerHTML=`<option value="0">${lab}</option>`+list.map(x=>`<option value="${x.id}">${esc(x.nombre)}</option>`).join('');e.style.display=list.length?'':'none'};
+  if(from=='init')fill('up',U.prov,'Provincia');
+  if(from=='init'||from=='up')fill('uz',U.zona.filter(z=>z.provincia_id==v('up')),'Zona');
+  if(from!='ua')fill('ua',U.part.filter(p=>p.zona_id==v('uz')),'Partido');
+  fill('ul',U.loc.filter(l=>l.partido_id==v('ua')),'Localidad');
+}
 async function guardar(){
-  const g=i=>$('#'+i).value.trim();
+  const g=i=>$('#'+i).value.trim(),v=i=>+$('#'+i).value||null;
   if(!g('n')||!g('d')||!g('w'))return alert('Completá nombre, dirección y WhatsApp');
-  const {error}=await sb.from('perfiles').insert({id:S.user.id,email:S.user.email,nombre_completo:g('n'),direccion:g('d'),telefono:g('t'),whatsapp:g('w')});
+  for(const [i,n] of [['up','la provincia'],['uz','la zona'],['ua','el partido'],['ul','la localidad']])if($('#'+i).style.display!='none'&&!v(i))return alert('Elegí '+n);
+  const {error}=await sb.from('perfiles').insert({id:S.user.id,email:S.user.email,nombre_completo:g('n'),direccion:g('d'),telefono:g('t'),whatsapp:g('w'),provincia_id:v('up'),zona_id:v('uz'),partido_id:v('ua'),localidad_id:v('ul')});
   if(error)return alert(error.message); init();
 }
 async function cargar(){
@@ -70,7 +85,7 @@ function vProd(){
   $('#v').innerHTML=`<div class="aviso">Los precios incluyen IVA.</div>
   <select onchange="S.cat=+this.value;render()">${opts(S.cats,S.cat,'Todas las categorías')}</select>
   <select onchange="S.marca=+this.value;render()">${opts(S.marcas,S.marca,'Todas las marcas')}</select>
-  ${ps.map(p=>`<div class="card row"><div><b>${esc(p.nombre)}</b><br>${esc(mn(p.marca_id))} · ${esc(p.unidad)}<br>${money(p.precio)}</div><button onclick="agregar(${p.id})">Agregar</button></div>`).join('')||'<p>No hay productos.</p>'}`;
+  ${ps.map(p=>`<div class="card row"><div class="g">${p.foto_url?`<img class="th" loading="lazy" src="${esc(p.foto_url)}" alt="">`:''}<div><b>${esc(p.nombre)}</b><br>${esc(mn(p.marca_id))} · ${esc(p.unidad)}<br>${money(p.precio)}</div></div><button onclick="agregar(${p.id})">Agregar</button></div>`).join('')||'<p>No hay productos.</p>'}`;
 }
 async function agregar(id){
   const p=S.prods.find(x=>x.id==id);
@@ -96,7 +111,7 @@ async function cerrar(e){
   if(error)return alert(error.message);
   S.tab='hist';await cargarPed();render();
 }
-const detalle=(p,x='')=>`<div class="card"><div class="row"><b>${p.numero||'(sin número)'}</b><span>${p.estado.toUpperCase()}</span></div><small>${new Date(p.enviado_at||p.created_at).toLocaleString('es-AR')}</small>${x}<ul>${p.pedido_items.map(i=>`<li>${i.cantidad} × ${esc(i.nombre)} (${esc(i.unidad)})</li>`).join('')}</ul>${p.notas?`<p><i>${esc(p.notas)}</i></p>`:''}<b>Total: ${money(total(p))}</b> <small>IVA incluido</small><br><button class="s np" onclick="window.print()">Imprimir / guardar PDF</button></div>`;
+const detalle=(p,x='')=>`<div class="card"><div class="row"><b>${p.numero||'(sin número)'}</b><span>${p.estado.toUpperCase()}</span></div><small>${new Date(p.enviado_at||p.created_at).toLocaleString('es-AR')}</small>${x}<ul>${p.pedido_items.map(i=>`<li>${i.cantidad} × ${esc(i.nombre)} (${esc(i.unidad)})</li>`).join('')}</ul>${p.notas?`<p><i>${esc(p.notas)}</i></p>`:''}<b>Total: ${money(total(p))}</b> <small>IVA incluido</small><br><button class="s np" onclick="window.print()">Imprimir / guardar PDF</button>${p.estado=='cancelado'&&!x?` <button class="s np" onclick="borrarMio('${p.id}')">Eliminar pedido</button>`:''}</div>`;
 async function vHist(){
   const {data}=await sb.from('pedidos').select('*,pedido_items(*)').eq('persona_id',S.user.id).neq('estado','borrador').order('created_at',{ascending:false});
   $('#v').innerHTML=(data||[]).map(p=>detalle(p)).join('')||'<p>Todavía no enviaste pedidos.</p>';
@@ -106,13 +121,13 @@ async function vCat(){
   $('#v').innerHTML=(data||[]).map(c=>`<div class="card"><a href="${esc(c.url)}" target="_blank">${esc(c.nombre)}</a></div>`).join('')||'<p>Todavía no hay catálogos.</p>';
 }
 async function vAdm(){
-  const {data}=await sb.from('pedidos').select('*,perfiles(nombre_completo,direccion,telefono,whatsapp),pedido_items(*)').neq('estado','borrador').order('created_at',{ascending:false});
-  const x=p=>{const f=p.perfiles||{};return `<br>${esc(f.nombre_completo)} · ${esc(f.direccion)}<br>Tel ${esc(f.telefono)} · WhatsApp ${esc(f.whatsapp)}<br><select class="np" onchange="estado('${p.id}',this.value)">${['enviado','entregado','cancelado'].map(e=>`<option ${p.estado==e?'selected':''}>${e}</option>`).join('')}</select> <button class="s np" onclick="borrar('${p.id}')">Eliminar</button>`};
+  const {data}=await sb.from('pedidos').select('*,perfiles(nombre_completo,direccion,telefono,whatsapp,provincias(nombre),zonas(nombre),partidos(nombre),localidades(nombre)),pedido_items(*)').neq('estado','borrador').order('created_at',{ascending:false});
+  const x=p=>{const f=p.perfiles||{};return `<br>${esc(f.nombre_completo)} · ${esc(f.direccion)}<br>${esc([f.localidades?.nombre,f.partidos?.nombre,f.zonas?.nombre,f.provincias?.nombre].filter(Boolean).join(', '))}<br>Tel ${esc(f.telefono)} · WhatsApp ${esc(f.whatsapp)}<br><select class="np" onchange="estado('${p.id}',this.value)">${['enviado','entregado','cancelado'].map(e=>`<option ${p.estado==e?'selected':''}>${e}</option>`).join('')}</select> <button class="s np" onclick="borrar('${p.id}')">Eliminar</button>`};
   $('#v').innerHTML=`<h2>Pedidos recibidos</h2>${(data||[]).map(p=>detalle(p,x(p))).join('')||'<p>Sin pedidos.</p>'}
   <h2>Agregar producto</h2><div class="card"><input id="pc" placeholder="Código (ej. Q0001A)"><select id="pk">${opts(S.cats,0,'Categoría')}</select><select id="pm">${opts(S.marcas,0,'Marca')}</select><input id="pf" placeholder="Familia"><input id="pn" placeholder="Producto"><input id="pu" placeholder="Unidad (ej. 100 g)"><input id="pp" type="number" step="0.01" placeholder="Precio con IVA"><button onclick="addProd()">Guardar producto</button></div>
   <h2>Importar desde Excel</h2><div class="card"><p>Acepta tu planilla de consumidor final (ID, CODIGO, T, MARCA, FAMILIA, PRODUCTO, PESO KG/UN, $/KG FINAL): el precio de cada unidad es peso × precio por kg final, y los productos con peso 0 quedan ocultos. También acepta columnas simples: Código, Marca, Familia, Producto, Unidad, Precio. Si el código ya existe, se actualiza.</p><input type="file" accept=".xlsx,.xls,.csv" onchange="importar(this)"></div>
   <button class="s" onclick="addAux('categorias')">+ Categoría</button> <button class="s" onclick="addAux('marcas')">+ Marca</button>
-  <h2>Productos</h2>${S.prods.map(p=>`<div class="card row"><div>${esc(p.codigo)} · ${esc(p.nombre)}<br>${esc(p.unidad)} · ${money(p.precio)} ${p.activo?'':'(oculto)'}</div><div><button class="s" onclick="precio(${p.id})">Precio</button> <button class="s" onclick="prodUp(${p.id},{activo:${!p.activo}})">${p.activo?'Ocultar':'Mostrar'}</button></div></div>`).join('')}`;
+  <h2>Fotos de productos</h2><div class="card"><p>Para subir muchas a la vez, nombrá cada archivo con el código del producto (ej. <b>Q5102A.jpg</b>). También podés subir una sola desde cada producto, más abajo.</p><input type="file" multiple accept="image/*" onchange="subirFotos(this.files)"></div><h2>Productos</h2>${S.prods.map(p=>`<div class="card row"><div>${esc(p.codigo)} · ${esc(p.nombre)}<br>${esc(p.unidad)} · ${money(p.precio)} ${p.activo?'':'(oculto)'}</div><div><label class="b">${p.foto_url?'Cambiar foto':'Foto'}<input type="file" accept="image/*" hidden onchange="subirFotos(this.files,${p.id})"></label> <button class="s" onclick="precio(${p.id})">Precio</button> <button class="s" onclick="prodUp(${p.id},{activo:${!p.activo}})">${p.activo?'Ocultar':'Mostrar'}</button></div></div>`).join('')}`;
 }
 async function estado(id,e){const {error}=await sb.from('pedidos').update({estado:e}).eq('id',id);if(error)alert(error.message)}
 async function borrar(id){if(confirm('¿Eliminar este pedido?')){await sb.from('pedidos').delete().eq('id',id);render()}}
@@ -157,6 +172,29 @@ async function importar(inp){
     alert('Productos importados: '+lista.length+' ('+lista.filter(x=>x.activo).length+' a la venta, el resto oculto)'+(omit?'. Filas omitidas (sin código, producto o precio): '+omit:''));
     await cargar();render();
   }catch(e){alert('No se pudo importar: '+(e.message||e))}
+}
+const redim=f=>new Promise((ok,ko)=>{const im=new Image();im.onload=()=>{const k=Math.min(1,800/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);c.getContext('2d').drawImage(im,0,0,c.width,c.height);c.toBlob(b=>b?ok(b):ko(new Error('imagen inválida')),'image/jpeg',.8)};im.onerror=()=>ko(new Error('no se pudo leer'));im.src=URL.createObjectURL(f)});
+async function subirFotos(files,id){
+  let ok=0;const mal=[];
+  for(const f of files){
+    const p=id?S.prods.find(x=>x.id==id):S.prods.find(x=>norm(x.codigo)==norm(f.name.replace(/\.[^.]+$/,'')));
+    if(!p){mal.push(f.name+' (código no encontrado)');continue}
+    try{
+      const b=await redim(f),path=p.codigo+'.jpg';
+      const u=await sb.storage.from('productos').upload(path,b,{upsert:true,contentType:'image/jpeg'});
+      if(u.error)throw u.error;
+      const url=sb.storage.from('productos').getPublicUrl(path).data.publicUrl+'?v='+Date.now();
+      const q=await sb.from('productos').update({foto_url:url}).eq('id',p.id);
+      if(q.error)throw q.error;ok++;
+    }catch(e){mal.push(f.name+' ('+(e.message||e)+')')}
+  }
+  alert('Fotos cargadas: '+ok+(mal.length?'\nNo se pudieron cargar:\n'+mal.join('\n'):''));
+  await cargar();render();
+}
+async function borrarMio(id){
+  if(!confirm('¿Eliminar este pedido cancelado?'))return;
+  const {error}=await sb.from('pedidos').delete().eq('id',id);
+  if(error)return alert(error.message);render();
 }
 function precio(id){const v=parseFloat(prompt('Nuevo precio con IVA:'));if(v>=0)prodUp(id,{precio:v})}
 init();
