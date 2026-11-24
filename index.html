@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Salumería La Vuelta</title>
+<meta name="theme-color" content="#000000"><link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--c:#a8101c;--o:#e0a526;--bg:#faf4e4;--t:#1a1a1a}
+*{box-sizing:border-box}
+body{margin:0;font:18px system-ui,sans-serif;background:var(--bg);color:var(--t);padding-bottom:80px}
+header{background:#000;color:#f6e7bd;padding:8px 14px;font-weight:700;font-size:20px;display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid var(--o)}header img{height:52px;width:52px;vertical-align:middle;margin-right:10px}.logo{display:block;width:220px;max-width:70%;margin:10px auto}
+main{max-width:720px;margin:auto;padding:14px}
+button,select,input,textarea{font:inherit;padding:12px;border-radius:10px;border:1px solid #bbb;width:100%;margin:4px 0}
+button{background:var(--c);color:#fff;border:0;font-weight:600;cursor:pointer;width:auto}
+button.s{background:#eee;color:#222}
+.card{background:#fff;border-radius:12px;padding:12px;margin:10px 0;box-shadow:0 1px 3px #0002}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+nav{position:fixed;bottom:0;left:0;right:0;background:#fff;display:flex;border-top:1px solid #ccc}
+nav button{flex:1;border-radius:0;background:#fff;color:#222;font-size:15px;margin:0}
+nav button.on{background:var(--c);color:#fff}
+.aviso{background:#fff3cd;padding:8px;border-radius:8px;font-size:15px}
+@media print{nav,header button,.np{display:none}}
+</style></head>
+<body><div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+const SB_URL='https://bsstgsxmhbuytatgofif.supabase.co', SB_KEY='sb_publishable_WuHvzOxIscpyfZC9ISvZww_tOhulHZh';
+const sb=supabase.createClient(SB_URL,SB_KEY);
+const $=s=>document.querySelector(s), app=$('#app');
+const S={user:null,perfil:null,tab:'prod',cats:[],marcas:[],prods:[],cat:0,marca:0,ped:null,items:[]};
+const money=n=>'$'+Number(n).toLocaleString('es-AR',{minimumFractionDigits:2});
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const opts=(a,sel,all)=>(all?`<option value="0">${all}</option>`:'')+a.map(x=>`<option value="${x.id}" ${sel==x.id?'selected':''}>${esc(x.nombre)}</option>`).join('');
+const total=p=>p.pedido_items.reduce((a,i)=>a+i.precio*i.cantidad,0);
+
+async function init(){
+  const {data:{session}}=await sb.auth.getSession();
+  if(!session)return login();
+  S.user=session.user;
+  const {data:p}=await sb.from('perfiles').select('*').eq('id',S.user.id).maybeSingle();
+  if(!p)return alta();
+  S.perfil=p; await cargar(); render();
+}
+function login(){app.innerHTML=`<header><span><img src="logo.png" alt="">Salumería La Vuelta</span></header><main><img class="logo" src="logo.png" alt="Tienda virtual La Vuelta"><div class="card"><h2>Bienvenido</h2><p>Entrá con tu cuenta de Google para hacer tu pedido.</p><button onclick="sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin}})">Entrar con Google</button></div></main>`}
+function alta(){app.innerHTML=`<header><span><img src="logo.png" alt="">Salumería La Vuelta</span></header><main><div class="card"><h2>Tus datos</h2><input id="n" placeholder="Nombre completo"><input id="d" placeholder="Dirección"><input id="t" placeholder="Teléfono" type="tel"><input id="w" placeholder="WhatsApp" type="tel"><button onclick="guardar()">Guardar y continuar</button></div></main>`}
+async function guardar(){
+  const g=i=>$('#'+i).value.trim();
+  if(!g('n')||!g('d')||!g('w'))return alert('Completá nombre, dirección y WhatsApp');
+  const {error}=await sb.from('perfiles').insert({id:S.user.id,email:S.user.email,nombre_completo:g('n'),direccion:g('d'),telefono:g('t'),whatsapp:g('w')});
+  if(error)return alert(error.message); init();
+}
+async function cargar(){
+  const [c,m,p]=await Promise.all([sb.from('categorias').select('*').order('orden'),sb.from('marcas').select('*').order('nombre'),sb.from('productos').select('*').order('orden').order('nombre')]);
+  S.cats=c.data||[];S.marcas=m.data||[];S.prods=p.data||[];
+  await cargarPed();
+}
+async function cargarPed(){
+  const {data}=await sb.from('pedidos').select('*').eq('persona_id',S.user.id).eq('estado','borrador').order('created_at',{ascending:false}).limit(1);
+  S.ped=data?.[0]||null;S.items=[];
+  if(S.ped){const r=await sb.from('pedido_items').select('*').eq('pedido_id',S.ped.id).order('nombre');S.items=r.data||[];}
+}
+function render(){
+  const tabs=[['prod','Productos'],['ped','Mi pedido'],['hist','Pedidos'],['cat','Catálogos'],...(S.perfil.es_admin?[['adm','Admin']]:[])];
+  app.innerHTML=`<header><span><img src="logo.png" alt="">La Vuelta</span><button class="s" onclick="sb.auth.signOut().then(()=>location.reload())">Salir</button></header><main id="v"></main><nav>${tabs.map(([k,n])=>`<button class="${S.tab==k?'on':''}" onclick="S.tab='${k}';render()">${n}${k=='ped'&&S.items.length?' ('+S.items.length+')':''}</button>`).join('')}</nav>`;
+  ({prod:vProd,ped:vPed,hist:vHist,cat:vCat,adm:vAdm})[S.tab]();
+}
+function vProd(){
+  const ps=S.prods.filter(p=>p.activo&&(!S.cat||p.categoria_id==S.cat)&&(!S.marca||p.marca_id==S.marca));
+  const mn=id=>S.marcas.find(m=>m.id==id)?.nombre||'';
+  $('#v').innerHTML=`<div class="aviso">Los precios incluyen IVA.</div>
+  <select onchange="S.cat=+this.value;render()">${opts(S.cats,S.cat,'Todas las categorías')}</select>
+  <select onchange="S.marca=+this.value;render()">${opts(S.marcas,S.marca,'Todas las marcas')}</select>
+  ${ps.map(p=>`<div class="card row"><div><b>${esc(p.nombre)}</b><br>${esc(mn(p.marca_id))} · ${esc(p.unidad)}<br>${money(p.precio)}</div><button onclick="agregar(${p.id})">Agregar</button></div>`).join('')||'<p>No hay productos.</p>'}`;
+}
+async function agregar(id){
+  const p=S.prods.find(x=>x.id==id);
+  if(!S.ped){const {data,error}=await sb.from('pedidos').insert({persona_id:S.user.id}).select().single();if(error)return alert(error.message);S.ped=data;}
+  const it=S.items.find(i=>i.producto_id==id);
+  if(it)await sb.from('pedido_items').update({cantidad:it.cantidad+1}).eq('id',it.id);
+  else await sb.from('pedido_items').insert({pedido_id:S.ped.id,producto_id:id,codigo:p.codigo,nombre:p.nombre,unidad:p.unidad,precio:p.precio,cantidad:1});
+  await cargarPed();render();
+}
+async function cant(id,d){
+  const it=S.items.find(i=>i.id==id),n=it.cantidad+d;
+  if(n<1)await sb.from('pedido_items').delete().eq('id',id);else await sb.from('pedido_items').update({cantidad:n}).eq('id',id);
+  await cargarPed();render();
+}
+function vPed(){
+  const t=S.items.reduce((a,i)=>a+i.precio*i.cantidad,0);
+  $('#v').innerHTML=S.items.length?`<div class="aviso">Precios con IVA incluido. Podés cambiar las cantidades antes de enviar.</div>${S.items.map(i=>`<div class="card row"><div><b>${esc(i.nombre)}</b><br>${esc(i.unidad)} · ${money(i.precio)}</div><div><button class="s" onclick="cant('${i.id}',-1)">−</button> <b>${i.cantidad}</b> <button class="s" onclick="cant('${i.id}',1)">+</button></div></div>`).join('')}<h3>Total aproximado: ${money(t)}</h3><textarea id="notas" placeholder="Comentarios (opcional)">${esc(S.ped.notas)}</textarea><button onclick="cerrar('enviado')">ENVIAR PEDIDO</button> <button class="s" onclick="cerrar('cancelado')">Cancelar pedido</button>`:'<p>Todavía no agregaste productos.</p>';
+}
+async function cerrar(e){
+  if(e=='enviado'&&!confirm('¿Enviar el pedido? Después no se podrá modificar.'))return;
+  if(e=='cancelado'&&!confirm('¿Cancelar el pedido?'))return;
+  const {error}=await sb.from('pedidos').update({estado:e,notas:$('#notas')?.value||null}).eq('id',S.ped.id);
+  if(error)return alert(error.message);
+  S.tab='hist';await cargarPed();render();
+}
+const detalle=(p,x='')=>`<div class="card"><div class="row"><b>${p.numero||'(sin número)'}</b><span>${p.estado.toUpperCase()}</span></div><small>${new Date(p.enviado_at||p.created_at).toLocaleString('es-AR')}</small>${x}<ul>${p.pedido_items.map(i=>`<li>${i.cantidad} × ${esc(i.nombre)} (${esc(i.unidad)})</li>`).join('')}</ul>${p.notas?`<p><i>${esc(p.notas)}</i></p>`:''}<b>Total: ${money(total(p))}</b> <small>IVA incluido</small><br><button class="s np" onclick="window.print()">Imprimir / guardar PDF</button></div>`;
+async function vHist(){
+  const {data}=await sb.from('pedidos').select('*,pedido_items(*)').eq('persona_id',S.user.id).neq('estado','borrador').order('created_at',{ascending:false});
+  $('#v').innerHTML=(data||[]).map(p=>detalle(p)).join('')||'<p>Todavía no enviaste pedidos.</p>';
+}
+async function vCat(){
+  const {data}=await sb.from('catalogos').select('*').order('nombre');
+  $('#v').innerHTML=(data||[]).map(c=>`<div class="card"><a href="${esc(c.url)}" target="_blank">${esc(c.nombre)}</a></div>`).join('')||'<p>Todavía no hay catálogos.</p>';
+}
+async function vAdm(){
+  const {data}=await sb.from('pedidos').select('*,perfiles(nombre_completo,direccion,telefono,whatsapp),pedido_items(*)').neq('estado','borrador').order('created_at',{ascending:false});
+  const x=p=>{const f=p.perfiles||{};return `<br>${esc(f.nombre_completo)} · ${esc(f.direccion)}<br>Tel ${esc(f.telefono)} · WhatsApp ${esc(f.whatsapp)}<br><select class="np" onchange="estado('${p.id}',this.value)">${['enviado','entregado','cancelado'].map(e=>`<option ${p.estado==e?'selected':''}>${e}</option>`).join('')}</select> <button class="s np" onclick="borrar('${p.id}')">Eliminar</button>`};
+  $('#v').innerHTML=`<h2>Pedidos recibidos</h2>${(data||[]).map(p=>detalle(p,x(p))).join('')||'<p>Sin pedidos.</p>'}
+  <h2>Agregar producto</h2><div class="card"><input id="pc" placeholder="Código (ej. Q0001A)"><select id="pk">${opts(S.cats,0,'Categoría')}</select><select id="pm">${opts(S.marcas,0,'Marca')}</select><input id="pf" placeholder="Familia"><input id="pn" placeholder="Producto"><input id="pu" placeholder="Unidad (ej. 100 g)"><input id="pp" type="number" step="0.01" placeholder="Precio con IVA"><button onclick="addProd()">Guardar producto</button></div>
+  <button class="s" onclick="addAux('categorias')">+ Categoría</button> <button class="s" onclick="addAux('marcas')">+ Marca</button>
+  <h2>Productos</h2>${S.prods.map(p=>`<div class="card row"><div>${esc(p.codigo)} · ${esc(p.nombre)}<br>${esc(p.unidad)} · ${money(p.precio)} ${p.activo?'':'(oculto)'}</div><div><button class="s" onclick="precio(${p.id})">Precio</button> <button class="s" onclick="prodUp(${p.id},{activo:${!p.activo}})">${p.activo?'Ocultar':'Mostrar'}</button></div></div>`).join('')}`;
+}
+async function estado(id,e){const {error}=await sb.from('pedidos').update({estado:e}).eq('id',id);if(error)alert(error.message)}
+async function borrar(id){if(confirm('¿Eliminar este pedido?')){await sb.from('pedidos').delete().eq('id',id);render()}}
+async function addAux(t){const n=prompt('Nombre:');if(!n)return;const {error}=await sb.from(t).insert({nombre:n});if(error)return alert(error.message);await cargar();render()}
+async function addProd(){
+  const g=i=>$('#'+i).value.trim();
+  const {error}=await sb.from('productos').insert({codigo:g('pc'),categoria_id:+g('pk')||null,marca_id:+g('pm')||null,familia:g('pf'),nombre:g('pn'),unidad:g('pu'),precio:+g('pp')});
+  if(error)return alert(error.message);await cargar();render();
+}
+async function prodUp(id,c){await sb.from('productos').update(c).eq('id',id);await cargar();render()}
+function precio(id){const v=parseFloat(prompt('Nuevo precio con IVA:'));if(v>=0)prodUp(id,{precio:v})}
+init();
+</script></body></html>
