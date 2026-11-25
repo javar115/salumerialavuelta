@@ -65,12 +65,12 @@ async function guardar(){
   if(error)return alert(error.message); init();
 }
 async function cargar(){
-  const [c,m,p]=await Promise.all([sb.from('categorias').select('*').order('orden'),sb.from('marcas').select('*').order('nombre'),sb.from('productos').select('*').order('orden').order('nombre')]);
-  S.cats=c.data||[];S.marcas=m.data||[];S.prods=p.data||[];
+  const [c,m,p,q]=await Promise.all([sb.from('categorias').select('*').order('orden'),sb.from('marcas').select('*').order('nombre'),sb.from('productos').select('*').order('orden').order('nombre'),sb.from('promociones').select('*,promocion_items(producto_id,cantidad)').eq('publicada',true).order('created_at',{ascending:false})]);
+  S.cats=c.data||[];S.marcas=m.data||[];S.prods=p.data||[];S.promos=q.data||[];
   await cargarPed();
 }
 async function cargarPed(){
-  const {data}=await sb.from('pedidos').select('*').eq('persona_id',S.user.id).eq('estado','borrador').order('created_at',{ascending:false}).limit(1);
+  const {data}=await sb.from('pedidos').select('*').eq('persona_id',S.user.id).eq('estado','borrador').is('promocion_id',null).order('created_at',{ascending:false}).limit(1);
   S.ped=data?.[0]||null;S.items=[];
   if(S.ped){const r=await sb.from('pedido_items').select('*').eq('pedido_id',S.ped.id).order('nombre');S.items=r.data||[];}
 }
@@ -82,7 +82,7 @@ function render(){
 function vProd(){
   const ps=S.prods.filter(p=>p.activo&&(!S.cat||p.categoria_id==S.cat)&&(!S.marca||p.marca_id==S.marca));
   const mn=id=>S.marcas.find(m=>m.id==id)?.nombre||'';
-  $('#v').innerHTML=`<div class="aviso">Los precios incluyen IVA.</div>
+  $('#v').innerHTML=`<div class="aviso">Los precios incluyen IVA.</div>${promoHtml()}
   <select onchange="S.cat=+this.value;render()">${opts(S.cats,S.cat,'Todas las categorías')}</select>
   <select onchange="S.marca=+this.value;render()">${opts(S.marcas,S.marca,'Todas las marcas')}</select>
   ${ps.map(p=>`<div class="card row"><div class="g">${p.foto_url?`<img class="th" loading="lazy" src="${esc(p.foto_url)}" alt="">`:''}<div><small>Cód. ${esc(p.codigo)}</small><br><b>${esc(p.nombre)}</b><br>${esc(mn(p.marca_id))} · ${esc(p.unidad)}<br>${money(p.precio)}</div></div><button onclick="agregar(${p.id})">Agregar</button></div>`).join('')||'<p>No hay productos.</p>'}`;
@@ -111,7 +111,7 @@ async function cerrar(e){
   if(error)return alert(error.message);
   S.tab='hist';await cargarPed();render();
 }
-const detalle=(p,x='')=>`<div class="card"><div class="row"><b>${p.numero||'(sin número)'}</b><span>${p.estado.toUpperCase()}</span></div><small>${new Date(p.enviado_at||p.created_at).toLocaleString('es-AR')}</small>${x}<ul>${p.pedido_items.map(i=>`<li>${i.cantidad} × ${esc(i.nombre)} (${esc(i.unidad)}) · Cód. ${esc(i.codigo)}</li>`).join('')}</ul>${p.notas?`<p><i>${esc(p.notas)}</i></p>`:''}<b>Total: ${money(total(p))}</b> <small>IVA incluido</small><br><button class="s np" onclick="window.print()">Imprimir / guardar PDF</button>${p.estado=='cancelado'&&!x?` <button class="s np" onclick="borrarMio('${p.id}')">Eliminar pedido</button>`:''}</div>`;
+const detalle=(p,x='')=>`<div class="card"><div class="row"><b>${p.numero||'(sin número)'}</b><span>${p.estado.toUpperCase()}</span></div><small>${new Date(p.enviado_at||p.created_at).toLocaleString('es-AR')}</small>${p.promo_nombre?`<br><b>🏷️ Promoción: ${esc(p.promo_nombre)}</b>`:''}${x}<ul>${p.pedido_items.map(i=>`<li>${i.cantidad} × ${esc(i.nombre)} (${esc(i.unidad)}) · Cód. ${esc(i.codigo)}</li>`).join('')}</ul>${p.notas?`<p><i>${esc(p.notas)}</i></p>`:''}<b>Total: ${money(total(p))}</b> <small>IVA incluido</small><br><button class="s np" onclick="window.print()">Imprimir / guardar PDF</button>${p.estado=='cancelado'&&!x?` <button class="s np" onclick="borrarMio('${p.id}')">Eliminar pedido</button>`:''}</div>`;
 async function vHist(){
   const {data}=await sb.from('pedidos').select('*,pedido_items(*)').eq('persona_id',S.user.id).neq('estado','borrador').order('created_at',{ascending:false});
   $('#v').innerHTML=(data||[]).map(p=>detalle(p)).join('')||'<p>Todavía no enviaste pedidos.</p>';
@@ -121,6 +121,7 @@ async function vCat(){
   $('#v').innerHTML=(data||[]).map(c=>`<div class="card"><a href="${esc(c.url)}" target="_blank">${esc(c.nombre)}</a></div>`).join('')||'<p>Todavía no hay catálogos.</p>';
 }
 async function vAdm(){
+  if(S.adm=='promo')return vPromos();
   const {data}=await sb.from('pedidos').select('*,perfiles(nombre_completo,direccion,telefono,whatsapp,provincias(nombre),zonas(nombre),partidos(nombre),localidades(nombre)),pedido_items(*)').neq('estado','borrador').order('created_at',{ascending:false});
   const x=p=>{const f=p.perfiles||{};return `<br>${esc(f.nombre_completo)} · ${esc(f.direccion)}<br>${esc([f.localidades?.nombre,f.partidos?.nombre,f.zonas?.nombre,f.provincias?.nombre].filter(Boolean).join(', '))}<br>Tel ${esc(f.telefono)} · WhatsApp ${esc(f.whatsapp)}<br><select class="np" onchange="estado('${p.id}',this.value)">${['enviado','entregado','cancelado'].map(e=>`<option ${p.estado==e?'selected':''}>${e}</option>`).join('')}</select> <button class="s np" onclick="borrar('${p.id}')">Eliminar</button>`};
   $('#v').innerHTML=`<h2>Pedidos recibidos</h2>${(data||[]).map(p=>detalle(p,x(p))).join('')||'<p>Sin pedidos.</p>'}
@@ -128,6 +129,7 @@ async function vAdm(){
   <h2>Importar desde Excel</h2><div class="card"><p>Acepta tu planilla de consumidor final (ID, CODIGO, T, MARCA, FAMILIA, PRODUCTO, PESO KG/UN, $/KG FINAL): el precio de cada unidad es peso × precio por kg final, y los productos con peso 0 quedan ocultos. También acepta columnas simples: Código, Marca, Familia, Producto, Unidad, Precio. Si el código ya existe, se actualiza.</p><input type="file" accept=".xlsx,.xls,.csv" onchange="importar(this)"></div>
   <button class="s" onclick="addAux('categorias')">+ Categoría</button> <button class="s" onclick="addAux('marcas')">+ Marca</button>
   <h2>Fotos de productos</h2><div class="card"><p>Para subir muchas a la vez, nombrá cada archivo con el código del producto (ej. <b>Q5102A.jpg</b> o <b>Q5102.jpg</b>: la letra final es opcional). También podés subir una sola desde cada producto, más abajo.</p><input type="file" multiple accept="image/*" onchange="subirFotos(this.files)"></div><h2>Productos</h2>${S.prods.map(p=>`<div class="card row"><div>${esc(p.codigo)} · ${esc(p.nombre)}<br>${esc(p.unidad)} · ${money(p.precio)} ${p.activo?'':'(oculto)'}</div><div><label class="b">${p.foto_url?'Cambiar foto':'Foto'}<input type="file" accept="image/*" hidden onchange="subirFotos(this.files,${p.id})"></label> <button class="s" onclick="precio(${p.id})">Precio</button> <button class="s" onclick="prodUp(${p.id},{activo:${!p.activo}})">${p.activo?'Ocultar':'Mostrar'}</button></div></div>`).join('')}`;
+  $('#v').insertAdjacentHTML('afterbegin',subAdm());
 }
 async function estado(id,e){const {error}=await sb.from('pedidos').update({estado:e}).eq('id',id);if(error)alert(error.message)}
 async function borrar(id){if(confirm('¿Eliminar este pedido?')){await sb.from('pedidos').delete().eq('id',id);render()}}
@@ -198,6 +200,53 @@ async function borrarMio(id){
   const {error}=await sb.from('pedidos').delete().eq('id',id);
   if(error)return alert(error.message);render();
 }
+const subAdm=()=>`<div class="row np"><button class="${S.adm=='promo'?'s':''}" onclick="S.adm='x';render()">Pedidos y productos</button><button class="${S.adm=='promo'?'':'s'}" onclick="S.adm='promo';render()">Promociones</button></div>`;
+function promoHtml(){
+  if(S.cat||S.marca)return '';
+  const h=(S.promos||[]).map(pr=>{
+    const it=pr.promocion_items.map(i=>({i,p:S.prods.find(x=>x.id==i.producto_id)}));
+    if(!it.length||it.some(x=>!x.p))return '';
+    const base=it.reduce((a,x)=>a+x.p.precio*x.i.cantidad,0),fin=base*(1-pr.descuento/100);
+    return `<div class="card" style="border:2px solid var(--o)"><b>🏷️ ${esc(pr.nombre)}</b> <small>(${+pr.descuento}% de descuento)</small><ul>${it.map(x=>`<li>${x.i.cantidad} × ${esc(x.p.nombre)} (${esc(x.p.unidad)}) · Cód. ${esc(x.p.codigo)}</li>`).join('')}</ul><s>${money(base)}</s> <b>${money(fin)}</b> <small>IVA incluido</small><br><button onclick="pedirPromo(${pr.id})">Pedir esta promoción</button></div>`;
+  }).join('');
+  return h?`<h2>Promociones</h2><div class="aviso">Las promociones se piden por separado y no se suman a tu pedido normal.</div>${h}<h2>Productos</h2>`:'';
+}
+async function pedirPromo(id){
+  const pr=S.promos.find(x=>x.id==id);
+  const it=pr.promocion_items.map(i=>({i,p:S.prods.find(x=>x.id==i.producto_id)}));
+  if(!it.length||it.some(x=>!x.p))return alert('Esta promoción no está disponible');
+  if(!confirm('Se enviará un pedido solo con la promoción "'+pr.nombre+'". ¿Confirmás?'))return;
+  const {data,error}=await sb.from('pedidos').insert({persona_id:S.user.id,promocion_id:pr.id,promo_nombre:pr.nombre}).select().single();
+  if(error)return alert(error.message);
+  const rows=it.map(({i,p})=>({pedido_id:data.id,producto_id:p.id,codigo:p.codigo,nombre:p.nombre,unidad:p.unidad,precio:Math.round(p.precio*(1-pr.descuento/100)*100)/100,cantidad:i.cantidad}));
+  let e=(await sb.from('pedido_items').insert(rows)).error;
+  if(!e)e=(await sb.from('pedidos').update({estado:'enviado'}).eq('id',data.id)).error;
+  if(e){await sb.from('pedidos').update({estado:'cancelado'}).eq('id',data.id);return alert(e.message)}
+  alert('Pedido de la promoción enviado.');S.tab='hist';render();
+}
+async function vPromos(){
+  const {data}=await sb.from('promociones').select('*,promocion_items(producto_id,cantidad)').order('created_at',{ascending:false});
+  S.pa=data||[];
+  const ed=S.pe,sel=new Map((ed?.promocion_items||[]).map(i=>[i.producto_id,i.cantidad]));
+  const mn=id=>S.marcas.find(m=>m.id==id)?.nombre||'';
+  const ps=S.prods.filter(p=>p.activo).sort((a,b)=>mn(a.marca_id).localeCompare(mn(b.marca_id))||a.nombre.localeCompare(b.nombre));
+  $('#v').innerHTML=subAdm()+`<h2>${ed?'Editar promoción':'Nueva promoción'}</h2><div class="card"><input id="qn" placeholder="Nombre de la promoción" value="${esc(ed?.nombre)}"><input id="qd" type="number" min="0" max="100" step="0.5" placeholder="Descuento % sobre la suma" value="${ed?+ed.descuento:''}"><input placeholder="Buscar por marca, producto o código" oninput="filtrarPromo(this.value)"><div style="max-height:320px;overflow:auto">${ps.map(p=>`<div class="row pr" data-t="${esc(norm(mn(p.marca_id)+' '+p.nombre+' '+p.codigo))}"><span>${esc(mn(p.marca_id))} · ${esc(p.nombre)} (${esc(p.unidad)}) ${money(p.precio)}</span><input type="number" min="0" style="width:70px" data-p="${p.id}" value="${sel.get(p.id)||0}"></div>`).join('')}</div><small>Cantidad de cada producto que incluye la promoción (0 = no incluido).</small><br><button onclick="guardarPromo()">${ed?'Guardar cambios':'Crear promoción'}</button> ${ed?'<button class="s" onclick="S.pe=null;vPromos()">Cancelar edición</button>':''}</div><h2>Promociones</h2>${S.pa.map(pr=>`<div class="card"><div class="row"><b>${esc(pr.nombre)}</b><span>${+pr.descuento}% · ${pr.publicada?'PUBLICADA':'oculta'}</span></div><small>${pr.promocion_items.length} productos</small><br><button class="s" onclick="editPromo(${pr.id})">Editar</button> <button class="s" onclick="pubPromo(${pr.id},${!pr.publicada})">${pr.publicada?'Ocultar':'Publicar'}</button> <button class="s" onclick="delPromo(${pr.id})">Eliminar</button></div>`).join('')||'<p>Todavía no hay promociones.</p>'}`;
+}
+const filtrarPromo=q=>{const k=norm(q);document.querySelectorAll('.pr').forEach(r=>r.style.display=r.dataset.t.includes(k)?'':'none')};
+function editPromo(id){S.pe=S.pa.find(x=>x.id==id);vPromos();scrollTo(0,0)}
+async function guardarPromo(){
+  const nombre=$('#qn').value.trim(),d=parseFloat($('#qd').value);
+  const its=[...document.querySelectorAll('[data-p]')].map(e=>({producto_id:+e.dataset.p,cantidad:parseInt(e.value)||0})).filter(x=>x.cantidad>0);
+  if(!nombre||!(d>=0&&d<=100)||!its.length)return alert('Completá el nombre, el descuento (0 a 100) y al menos un producto');
+  let id=S.pe?.id;
+  if(id){const u=await sb.from('promociones').update({nombre,descuento:d}).eq('id',id);if(u.error)return alert(u.error.message);await sb.from('promocion_items').delete().eq('promocion_id',id)}
+  else{const n=await sb.from('promociones').insert({nombre,descuento:d}).select().single();if(n.error)return alert(n.error.message);id=n.data.id}
+  const e=await sb.from('promocion_items').insert(its.map(x=>({...x,promocion_id:id})));
+  if(e.error)return alert(e.error.message);
+  S.pe=null;alert('Promoción guardada. Para que la vean los clientes, tocá Publicar.');await cargar();vPromos();
+}
+async function pubPromo(id,v){const {error}=await sb.from('promociones').update({publicada:v}).eq('id',id);if(error)return alert(error.message);await cargar();vPromos()}
+async function delPromo(id){if(!confirm('¿Eliminar esta promoción? Los pedidos ya hechos se conservan.'))return;const {error}=await sb.from('promociones').delete().eq('id',id);if(error)return alert(error.message);if(S.pe?.id==id)S.pe=null;await cargar();vPromos()}
 function precio(id){const v=parseFloat(prompt('Nuevo precio con IVA:'));if(v>=0)prodUp(id,{precio:v})}
 init();
 </script></body></html>
