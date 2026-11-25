@@ -133,7 +133,7 @@ async function vAdm(){
   <h2>Agregar producto</h2><div class="card"><input id="pc" placeholder="Código (ej. Q0001A)"><select id="pk">${opts(S.cats,0,'Categoría')}</select><select id="pm">${opts(S.marcas,0,'Marca')}</select><input id="pf" placeholder="Familia"><input id="pn" placeholder="Producto"><input id="pu" placeholder="Unidad (ej. 100 g)"><input id="pp" type="number" step="0.01" placeholder="Precio con IVA"><button onclick="addProd()">Guardar producto</button></div>
   <h2>Importar desde Excel</h2><div class="card"><p>Acepta tu planilla de consumidor final (ID, CODIGO, T, MARCA, FAMILIA, PRODUCTO, PESO KG/UN, $/KG FINAL): el precio de cada unidad es peso × precio por kg final, y los productos con peso 0 quedan ocultos. También acepta columnas simples: Código, Marca, Familia, Producto, Unidad, Precio. Si el código ya existe, se actualiza.</p><label style="display:block;margin:8px 0"><input type="checkbox" id="ielim" checked style="width:auto;margin-right:8px">Eliminar los productos que no estén en la planilla</label><input type="file" accept=".xlsx,.xls,.csv" onchange="importar(this)"></div>
   <button class="s" onclick="addAux('categorias')">+ Categoría</button> <button class="s" onclick="addAux('marcas')">+ Marca</button>
-  <h2>Fotos de productos</h2><div class="card"><p>Para subir muchas a la vez, nombrá cada archivo con el código del producto (ej. <b>Q5102A.jpg</b> o <b>Q5102.jpg</b>: la letra final es opcional). También podés subir una sola desde cada producto, más abajo.</p><input type="file" multiple accept="image/*" onchange="subirFotos(this.files)"></div><h2>Productos</h2>${S.prods.map(p=>`<div class="card row"><div>${esc(p.codigo)} · ${esc(p.nombre)}<br>${esc(p.unidad)} · ${money(p.precio)} ${p.activo?'':'(oculto)'}</div><div><label class="b">${p.foto_url?'Cambiar foto':'Foto'}<input type="file" accept="image/*" hidden onchange="subirFotos(this.files,${p.id})"></label> <button class="s" onclick="precio(${p.id})">Precio</button> <button class="s" onclick="prodUp(${p.id},{activo:${!p.activo}})">${p.activo?'Ocultar':'Mostrar'}</button></div></div>`).join('')}`;
+  <h2>Fotos de productos</h2><div class="card"><p>Para subir muchas a la vez, nombrá cada archivo con el código del producto (ej. <b>Q5102A.jpg</b> o <b>Q5102.jpg</b>: la letra final es opcional). También podés subir una sola desde cada producto, más abajo.</p><input type="file" multiple accept="image/*" onchange="subirFotos(this.files)"></div><h2>Productos</h2><div class="card np"><input id="fq" placeholder="Buscar por código, nombre o marca" oninput="filtrarProd()"><select id="fc" onchange="filtrarProd()">${opts(S.cats,0,'Todas las categorías')}</select><div class="row"><button class="s" onclick="selTodos(true)">Seleccionar todos los visibles</button><button class="s" onclick="selTodos(false)">Quitar selección</button></div><div class="row"><button onclick="borrarSel()">Eliminar seleccionados (<span class="nsel">0</span>)</button><button class="s" onclick="ocultarSel(false)">Ocultar</button><button class="s" onclick="ocultarSel(true)">Mostrar</button></div></div>${S.prods.map(p=>`<div class="card row pq" data-c="${p.categoria_id||0}" data-t="${esc(norm(p.codigo+' '+p.nombre+' '+(S.marcas.find(m=>m.id==p.marca_id)?.nombre||'')))}"><div class="g"><input type="checkbox" class="sel" data-id="${p.id}" onchange="cuentaSel()" style="width:24px;height:24px;flex:none;margin:0"><div>${esc(p.codigo)} · ${esc(p.nombre)}<br>${esc(p.unidad)} · ${money(p.precio)} ${p.activo?'':'(oculto)'}</div></div><div><label class="b">${p.foto_url?'Cambiar foto':'Foto'}<input type="file" accept="image/*" hidden onchange="subirFotos(this.files,${p.id})"></label> <button class="s" onclick="precio(${p.id})">Precio</button> <button class="s" onclick="prodUp(${p.id},{activo:${!p.activo}})">${p.activo?'Ocultar':'Mostrar'}</button></div></div>`).join('')}`;
   $('#v').insertAdjacentHTML('afterbegin',subAdm());
 }
 async function estado(id,e){const {error}=await sb.from('pedidos').update({estado:e}).eq('id',id);if(error)alert(error.message);await contarNuevos();pintarNuevos();vAdm()}
@@ -338,6 +338,24 @@ async function cerrarMes(){
   const {error}=await sb.from('cierres_mes').upsert({mes:c.mes,pedidos:c.n,ventas:c.v,ticket:c.n?c.v/c.n:0,cobrado:c.cob,por_cobrar:c.xc,cerrado_at:new Date().toISOString()});
   if(error)return alert(error.message);
   alert('Mes cerrado.');vPanel();
+}
+function filtrarProd(){
+  const q=norm($('#fq').value),c=$('#fc').value;
+  document.querySelectorAll('.pq').forEach(r=>{r.style.display=(!q||r.dataset.t.includes(q))&&(c=='0'||r.dataset.c==c)?'':'none'});
+}
+function cuentaSel(){const n=document.querySelectorAll('.sel:checked').length;document.querySelectorAll('.nsel').forEach(e=>e.textContent=n)}
+function selTodos(v){document.querySelectorAll('.pq').forEach(r=>{if(r.style.display!='none')r.querySelector('.sel').checked=v});cuentaSel()}
+const idsSel=()=>[...document.querySelectorAll('.sel:checked')].map(e=>+e.dataset.id);
+async function borrarSel(){
+  const ids=idsSel();if(!ids.length)return alert('No seleccionaste ningún producto');
+  if(!confirm('Se van a ELIMINAR '+ids.length+' productos. Los pedidos ya hechos se conservan y las promociones que los incluyan se ocultarán. ¿Continuar?'))return;
+  for(let i=0;i<ids.length;i+=100){const {error}=await sb.from('productos').delete().in('id',ids.slice(i,i+100));if(error)return alert('No se pudo eliminar: '+error.message)}
+  alert('Productos eliminados: '+ids.length);await cargar();render();
+}
+async function ocultarSel(v){
+  const ids=idsSel();if(!ids.length)return alert('No seleccionaste ningún producto');
+  for(let i=0;i<ids.length;i+=100){const {error}=await sb.from('productos').update({activo:v}).in('id',ids.slice(i,i+100));if(error)return alert(error.message)}
+  await cargar();render();
 }
 function precio(id){const v=parseFloat(prompt('Nuevo precio con IVA:'));if(v>=0)prodUp(id,{precio:v})}
 init();
