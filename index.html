@@ -77,7 +77,7 @@ async function cargarPed(){
 }
 function render(){
   const tabs=[['prod','Productos'],['ped','Mi pedido'],['hist','Pedidos'],['cat','Catálogos'],...(S.perfil.es_admin?[['adm','Admin']]:[])];
-  app.innerHTML=`<header><span><img src="logo.png" alt="">La Vuelta</span><span>${inst?'<button class="s" onclick="instalar()">Instalar</button> ':''}<button class="s" onclick="sb.auth.signOut().then(()=>location.reload())">Salir</button></span></header><div id="nv"></div><main id="v"></main><nav>${tabs.map(([k,n])=>`<button class="${S.tab==k?'on':''}" onclick="S.tab='${k}';render()">${n}${k=='ped'&&S.items.length?' ('+S.items.length+')':''}</button>`).join('')}</nav>`;
+  app.innerHTML=`<header><span><img src="logo.png" alt="">La Vuelta</span><span>${inst?'<button class="s" onclick="instalar()">Instalar</button> ':''}<button class="s" onclick="salir()">Salir</button></span></header><div id="nv"></div><main id="v"></main><nav>${tabs.map(([k,n])=>`<button class="${S.tab==k?'on':''}" onclick="S.tab='${k}';render()">${n}${k=='ped'&&S.items.length?' ('+S.items.length+')':''}</button>`).join('')}</nav>`;
   pintarNuevos();
   ({prod:vProd,ped:vPed,hist:vHist,cat:vCat,adm:vAdm})[S.tab]();
 }
@@ -357,6 +357,11 @@ async function ocultarSel(v){
   const ids=idsSel();if(!ids.length)return alert('No seleccionaste ningún producto');
   for(let i=0;i<ids.length;i+=100){const {error}=await sb.from('productos').update({activo:v}).in('id',ids.slice(i,i+100));if(error)return alert(error.message)}
   await cargar();render();
+}
+async function salir(){
+  try{await sb.auth.signOut({scope:'local'})}catch(e){}
+  if(matchMedia('(display-mode: standalone)').matches)window.close();
+  setTimeout(()=>location.reload(),400);
 }
 function precio(id){const v=parseFloat(prompt('Nuevo precio con IVA:'));if(v>=0)prodUp(id,{precio:v})}
 init();
