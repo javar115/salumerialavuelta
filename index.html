@@ -87,7 +87,7 @@ function vProd(){
   $('#v').innerHTML=`<div class="aviso">Los precios incluyen IVA.</div>${promoHtml()}
   <select onchange="S.cat=+this.value;render()">${opts(S.cats,S.cat,'Todas las categorías')}</select>
   <select onchange="S.marca=+this.value;render()">${opts(S.marcas,S.marca,'Todas las marcas')}</select>
-  ${ps.map(p=>`<div class="card row"><div class="g">${p.foto_url?`<img class="th" loading="lazy" src="${esc(p.foto_url)}" alt="">`:''}<div><small>Cód. ${esc(p.codigo)}</small><br><b>${esc(p.nombre)}</b><br>${esc(mn(p.marca_id))} · ${esc(p.unidad)}<br>${money(p.precio)}</div></div><button onclick="agregar(${p.id})">Agregar</button></div>`).join('')||'<p>No hay productos.</p>'}`;
+  ${ps.map(p=>{const q=S.items.find(i=>i.producto_id==p.id)?.cantidad||0;return `<div class="card row" style="${q?'border-left:6px solid #1e7e34':''}"><div class="g">${p.foto_url?`<img class="th" loading="lazy" src="${esc(p.foto_url)}" alt="">`:''}<div><small>Cód. ${esc(p.codigo)}</small><br><b>${esc(p.nombre)}</b><br>${esc(mn(p.marca_id))} · ${esc(p.unidad)}<br>${money(p.precio)}</div></div>${q?`<div class="row" style="gap:6px;flex-wrap:nowrap"><button class="s" onclick="quitar(${p.id})">−</button><button style="background:#1e7e34" onclick="agregar(${p.id})">✔ Agregado (${q})</button></div>`:`<button onclick="agregar(${p.id})">Agregar</button>`}</div>`}).join('')||'<p>No hay productos.</p>'}`;
 }
 async function agregar(id){
   const p=S.prods.find(x=>x.id==id);
@@ -97,6 +97,7 @@ async function agregar(id){
   else await sb.from('pedido_items').insert({pedido_id:S.ped.id,producto_id:id,codigo:p.codigo,nombre:p.nombre,unidad:p.unidad,precio:p.precio,cantidad:1});
   await cargarPed();render();
 }
+async function quitar(pid){const it=S.items.find(i=>i.producto_id==pid);if(it)await cant(it.id,-1)}
 async function cant(id,d){
   const it=S.items.find(i=>i.id==id),n=it.cantidad+d;
   if(n<1)await sb.from('pedido_items').delete().eq('id',id);else await sb.from('pedido_items').update({cantidad:n}).eq('id',id);
