@@ -122,6 +122,7 @@ async function vCat(){
 }
 async function vAdm(){
   if(S.adm=='promo')return vPromos();
+  if(S.adm=='cat')return vCatAdm();
   const {data}=await sb.from('pedidos').select('*,perfiles(nombre_completo,direccion,telefono,whatsapp,provincias(nombre),zonas(nombre),partidos(nombre),localidades(nombre)),pedido_items(*)').neq('estado','borrador').order('created_at',{ascending:false});
   const x=p=>{const f=p.perfiles||{};return `<br>${esc(f.nombre_completo)} · ${esc(f.direccion)}<br>${esc([f.localidades?.nombre,f.partidos?.nombre,f.zonas?.nombre,f.provincias?.nombre].filter(Boolean).join(', '))}<br>Tel ${esc(f.telefono)} · WhatsApp ${esc(f.whatsapp)}<br><select class="np" onchange="estado('${p.id}',this.value)">${['enviado','entregado','cancelado'].map(e=>`<option ${p.estado==e?'selected':''}>${e}</option>`).join('')}</select> <button class="s np" onclick="borrar('${p.id}')">Eliminar</button>`};
   $('#v').innerHTML=`<h2>Pedidos recibidos</h2>${(data||[]).map(p=>detalle(p,x(p))).join('')||'<p>Sin pedidos.</p>'}
@@ -200,7 +201,7 @@ async function borrarMio(id){
   const {error}=await sb.from('pedidos').delete().eq('id',id);
   if(error)return alert(error.message);render();
 }
-const subAdm=()=>`<div class="row np"><button class="${S.adm=='promo'?'s':''}" onclick="S.adm='x';render()">Pedidos y productos</button><button class="${S.adm=='promo'?'':'s'}" onclick="S.adm='promo';render()">Promociones</button></div>`;
+const subAdm=()=>`<div class="row np">${[['x','Pedidos y productos'],['promo','Promociones'],['cat','Catálogos']].map(([k,n])=>`<button class="${(S.adm||'x')==k?'':'s'}" onclick="S.adm='${k}';render()">${n}</button>`).join('')}</div>`;
 function promoHtml(){
   if(S.cat||S.marca)return '';
   const h=(S.promos||[]).map(pr=>{
@@ -251,6 +252,30 @@ let inst=null;
 addEventListener('beforeinstallprompt',e=>{e.preventDefault();inst=e;if(S.perfil)render();else if($('#lg'))$('#lg').style.display=''});
 async function instalar(){if(!inst)return;inst.prompt();await inst.userChoice;inst=null;if(S.perfil)render();else if($('#lg'))$('#lg').style.display='none'}
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+async function vCatAdm(){
+  const {data}=await sb.from('catalogos').select('*').order('nombre');
+  $('#v').innerHTML=subAdm()+`<h2>Agregar catálogo</h2><div class="card"><input id="cn" placeholder="Nombre (ej. Catálogo Las Dinas)"><select id="cm">${opts(S.marcas,0,'Marca (opcional)')}</select><input id="cf" type="file" accept="application/pdf"><button onclick="subirCat()">Subir catálogo</button></div><h2>Catálogos cargados</h2>${(data||[]).map(c=>`<div class="card row"><a href="${esc(c.url)}" target="_blank">${esc(c.nombre)}</a><button class="s" onclick="delCat(${c.id})">Eliminar</button></div>`).join('')||'<p>Todavía no hay catálogos.</p>'}`;
+}
+async function subirCat(){
+  const n=$('#cn').value.trim(),f=$('#cf').files[0],m=+$('#cm').value||null;
+  if(!n||!f)return alert('Poné un nombre y elegí el archivo PDF');
+  if(f.type!='application/pdf')return alert('El archivo tiene que ser un PDF');
+  const path=Date.now()+'-'+norm(n).replace(/[^a-z0-9]+/g,'-')+'.pdf';
+  const u=await sb.storage.from('catalogos').upload(path,f,{contentType:'application/pdf'});
+  if(u.error)return alert(u.error.message);
+  const url=sb.storage.from('catalogos').getPublicUrl(path).data.publicUrl;
+  const {error}=await sb.from('catalogos').insert({marca_id:m,nombre:n,url});
+  if(error)return alert(error.message);
+  alert('Catálogo cargado');vCatAdm();
+}
+async function delCat(id){
+  if(!confirm('¿Eliminar este catálogo?'))return;
+  const {data:c}=await sb.from('catalogos').select('url').eq('id',id).single();
+  const {error}=await sb.from('catalogos').delete().eq('id',id);
+  if(error)return alert(error.message);
+  if(c)await sb.storage.from('catalogos').remove([decodeURIComponent(c.url.split('/catalogos/').pop())]);
+  vCatAdm();
+}
 function precio(id){const v=parseFloat(prompt('Nuevo precio con IVA:'));if(v>=0)prodUp(id,{precio:v})}
 init();
 </script></body></html>
