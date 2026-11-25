@@ -40,7 +40,7 @@ async function init(){
   S.user=session.user;
   const {data:p}=await sb.from('perfiles').select('*').eq('id',S.user.id).maybeSingle();
   if(!p)return alta();
-  S.perfil=p; await cargar(); render();
+  S.perfil=p; if(p.es_admin)S.tab='adm'; await cargar(); render();
   if(p.es_admin&&!S.iv)S.iv=setInterval(async()=>{await contarNuevos();pintarNuevos()},60000);
 }
 function login(){app.innerHTML=`<header><span><img src="logo.png" alt="">Salumería La Vuelta</span></header><main><img class="logo" src="logo.png" alt="Tienda virtual La Vuelta"><div class="card"><h2>Bienvenido</h2><p>Entrá con tu cuenta de Google para hacer tu pedido.</p><button onclick="sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin}})">Entrar con Google</button> <button class="s" id="lg" style="display:${inst?'':'none'}" onclick="instalar()">Instalar la app</button></div></main>`}
@@ -123,6 +123,7 @@ async function vCat(){
   $('#v').innerHTML=(data||[]).map(c=>`<div class="card"><a href="${esc(c.url)}" target="_blank">${esc(c.nombre)}</a></div>`).join('')||'<p>Todavía no hay catálogos.</p>';
 }
 async function vAdm(){
+  if((S.adm||'panel')=='panel')return vPanel();
   if(S.adm=='promo')return vPromos();
   if(S.adm=='cat')return vCatAdm();
   const {data}=await sb.from('pedidos').select('*,perfiles(nombre_completo,direccion,telefono,whatsapp,provincias(nombre),zonas(nombre),partidos(nombre),localidades(nombre)),pedido_items(*)').neq('estado','borrador').order('created_at',{ascending:false});
@@ -205,7 +206,7 @@ async function borrarMio(id){
   const {error}=await sb.from('pedidos').delete().eq('id',id);
   if(error)return alert(error.message);render();
 }
-const subAdm=()=>`<div class="row np">${[['x','Pedidos y productos'],['promo','Promociones'],['cat','Catálogos']].map(([k,n])=>`<button class="${(S.adm||'x')==k?'':'s'}" onclick="S.adm='${k}';render()">${n}</button>`).join('')}</div>`;
+const subAdm=()=>`<div class="row np">${[['panel','Panel'],['x','Pedidos y productos'],['promo','Promociones'],['cat','Catálogos']].map(([k,n])=>`<button class="${(S.adm||'panel')==k?'':'s'}" onclick="S.adm='${k}';render()">${n}</button>`).join('')}</div>`;
 function promoHtml(){
   if(S.cat||S.marca)return '';
   const h=(S.promos||[]).map(pr=>{
@@ -298,6 +299,40 @@ function imprimir(id){
 }
 const ESTADOS={enviado:'Recibido',preparacion:'En preparación',entregado:'Entregado',cancelado:'Cancelado',borrador:'Borrador'};
 const FILT={rec:['Recibidos',p=>p.estado=='enviado'],prep:['En preparación',p=>p.estado=='preparacion'],ent:['Entregados',p=>p.estado=='entregado'],xc:['Por cobrar',p=>p.cobro=='por_cobrar'&&p.estado!='cancelado'],cob:['Cobrados',p=>p.cobro=='cobrado'&&p.estado!='cancelado'],can:['Cancelados',p=>p.estado=='cancelado']};
+async function vPanel(){
+  const hoy=new Date(),cur=hoy.getFullYear()+'-'+String(hoy.getMonth()+1).padStart(2,'0');
+  const [a,b]=await Promise.all([sb.from('v_ventas_mensuales').select('*').order('mes',{ascending:false}),sb.from('cierres_mes').select('*')]);
+  const hist=a.data||[],cier=new Map((b.data||[]).map(c=>[c.mes,c]));
+  const mes=S.pm||cur,[y,m]=mes.split('-').map(Number);
+  const q=await sb.from('v_pedidos_resumen').select('*').gte('fecha',new Date(y,m-1,1).toISOString()).lt('fecha',new Date(y,m,1).toISOString()).neq('estado','cancelado');
+  if(q.error)return $('#v').innerHTML=subAdm()+'<p>No se pudo cargar el panel: '+esc(q.error.message)+'. ¿Ejecutaste actualizacion_6.sql?</p>';
+  const L=q.data||[],n=L.length,v=L.reduce((t,p)=>t+Number(p.total),0);
+  const cnt=f=>L.filter(f).length,sum=f=>L.filter(f).reduce((t,p)=>t+Number(p.total),0);
+  const xc=p=>p.cobro=='por_cobrar',cb=p=>p.cobro=='cobrado';
+  S.pc={mes,n,v,cob:sum(cb),xc:sum(xc)};
+  const loc={};L.forEach(p=>{const k=p.localidad||'Sin localidad';loc[k]=(loc[k]||0)+1});
+  const locs=Object.entries(loc).sort((a,b)=>b[1]-a[1]);
+  const meses=[...new Set([cur,...hist.map(h=>h.mes)])].sort().reverse();
+  const nom=k=>{const [yy,mm]=k.split('-').map(Number);return new Date(yy,mm-1,1).toLocaleDateString('es-AR',{month:'long',year:'numeric'})};
+  const acum=hist.reduce((t,h)=>t+h.pedidos,0),maxV=Math.max(1,...hist.map(h=>Number(h.ventas)));
+  const kpi=(t,val,sub='')=>`<div class="card" style="flex:1;min-width:140px;text-align:center"><small>${t}</small><div style="font-size:24px;font-weight:700">${val}</div>${sub?`<small>${sub}</small>`:'<small>&nbsp;</small>'}</div>`;
+  const c=cier.get(mes);
+  $('#v').innerHTML=subAdm()+`<div class="row" style="margin-top:12px"><h2 style="margin:0">Panel</h2><select style="width:auto" onchange="S.pm=this.value;vPanel()">${meses.map(k=>`<option value="${k}" ${k==mes?'selected':''}>${esc(nom(k))}</option>`).join('')}</select></div>
+  <p><small>Cuenta los pedidos enviados en el mes, sin los cancelados. Importes con IVA incluido.</small></p>
+  <div class="row" style="align-items:stretch">${kpi('Pedidos del mes',n)}${kpi('Ventas del mes',money(v))}${kpi('Ticket promedio',money(n?v/n:0))}${kpi('Pedidos acumulados',acum,'todos los meses')}</div>
+  <h3>Estado de los pedidos del mes</h3><div class="row" style="align-items:stretch">${kpi('Recibidos',cnt(p=>p.estado=='enviado'))}${kpi('En preparación',cnt(p=>p.estado=='preparacion'))}${kpi('Entregados',cnt(p=>p.estado=='entregado'))}</div>
+  <h3>Cobros del mes</h3><div class="row" style="align-items:stretch">${kpi('Por cobrar',cnt(xc),money(S.pc.xc))}${kpi('Cobrados',cnt(cb),money(S.pc.cob))}</div>
+  <h3>Pedidos por localidad</h3><div class="card">${locs.map(([k,x])=>`<div class="row"><span>${esc(k)}</span><b>${x}</b></div>`).join('')||'<p>Sin pedidos este mes.</p>'}</div>
+  <h3>Ventas mensuales</h3><div class="card">${hist.slice(0,12).map(h=>`<div style="margin:10px 0"><div class="row"><b>${esc(nom(h.mes))}${cier.has(h.mes)?' ✔ cerrado':''}</b><span>${money(h.ventas)}</span></div><div style="background:var(--o);height:10px;border-radius:5px;width:${Math.max(2,Math.round(h.ventas/maxV*100))}%"></div><small>${h.pedidos} pedidos · ticket ${money(h.pedidos?h.ventas/h.pedidos:0)}</small></div>`).join('')||'<p>Todavía no hay pedidos.</p>'}</div>
+  <button onclick="cerrarMes()">${c?'Volver a cerrar':'Cerrar'} ${esc(nom(mes))}</button>${c?`<p><small>Cerrado el ${new Date(c.cerrado_at).toLocaleDateString('es-AR')}: ${c.pedidos} pedidos, ${money(c.ventas)}, cobrado ${money(c.cobrado)}, por cobrar ${money(c.por_cobrar)}.</small></p>`:''}`;
+}
+async function cerrarMes(){
+  const c=S.pc;if(!c)return;
+  if(!confirm('Se guardará el resumen de '+c.mes+' con los datos de hoy: '+c.n+' pedidos, '+money(c.v)+'. ¿Cerrar el mes?'))return;
+  const {error}=await sb.from('cierres_mes').upsert({mes:c.mes,pedidos:c.n,ventas:c.v,ticket:c.n?c.v/c.n:0,cobrado:c.cob,por_cobrar:c.xc,cerrado_at:new Date().toISOString()});
+  if(error)return alert(error.message);
+  alert('Mes cerrado.');vPanel();
+}
 function precio(id){const v=parseFloat(prompt('Nuevo precio con IVA:'));if(v>=0)prodUp(id,{precio:v})}
 init();
 </script></body></html>
