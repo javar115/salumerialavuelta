@@ -131,7 +131,7 @@ async function vAdm(){
   const lista=data||[],af=FILT[S.af]?S.af:'rec',chips=Object.entries(FILT).map(([k,[n,f]])=>`<button class="${af==k?'':'s'}" onclick="S.af='${k}';vAdm()">${n} (${lista.filter(f).length})</button>`).join(' ');
   $('#v').innerHTML=`<h2>Pedidos</h2><div class="np">${chips}</div>${lista.filter(FILT[af][1]).map(p=>detalle(p,x(p))).join('')||'<p>No hay pedidos en esta categoría.</p>'}
   <h2>Agregar producto</h2><div class="card"><input id="pc" placeholder="Código (ej. Q0001A)"><select id="pk">${opts(S.cats,0,'Categoría')}</select><select id="pm">${opts(S.marcas,0,'Marca')}</select><input id="pf" placeholder="Familia"><input id="pn" placeholder="Producto"><input id="pu" placeholder="Unidad (ej. 100 g)"><input id="pp" type="number" step="0.01" placeholder="Precio con IVA"><button onclick="addProd()">Guardar producto</button></div>
-  <h2>Importar desde Excel</h2><div class="card"><p>Acepta tu planilla de consumidor final (ID, CODIGO, T, MARCA, FAMILIA, PRODUCTO, PESO KG/UN, $/KG FINAL): el precio de cada unidad es peso × precio por kg final, y los productos con peso 0 quedan ocultos. También acepta columnas simples: Código, Marca, Familia, Producto, Unidad, Precio. Si el código ya existe, se actualiza.</p><input type="file" accept=".xlsx,.xls,.csv" onchange="importar(this)"></div>
+  <h2>Importar desde Excel</h2><div class="card"><p>Acepta tu planilla de consumidor final (ID, CODIGO, T, MARCA, FAMILIA, PRODUCTO, PESO KG/UN, $/KG FINAL): el precio de cada unidad es peso × precio por kg final, y los productos con peso 0 quedan ocultos. También acepta columnas simples: Código, Marca, Familia, Producto, Unidad, Precio. Si el código ya existe, se actualiza.</p><label style="display:block;margin:8px 0"><input type="checkbox" id="ielim" checked style="width:auto;margin-right:8px">Eliminar los productos que no estén en la planilla</label><input type="file" accept=".xlsx,.xls,.csv" onchange="importar(this)"></div>
   <button class="s" onclick="addAux('categorias')">+ Categoría</button> <button class="s" onclick="addAux('marcas')">+ Marca</button>
   <h2>Fotos de productos</h2><div class="card"><p>Para subir muchas a la vez, nombrá cada archivo con el código del producto (ej. <b>Q5102A.jpg</b> o <b>Q5102.jpg</b>: la letra final es opcional). También podés subir una sola desde cada producto, más abajo.</p><input type="file" multiple accept="image/*" onchange="subirFotos(this.files)"></div><h2>Productos</h2>${S.prods.map(p=>`<div class="card row"><div>${esc(p.codigo)} · ${esc(p.nombre)}<br>${esc(p.unidad)} · ${money(p.precio)} ${p.activo?'':'(oculto)'}</div><div><label class="b">${p.foto_url?'Cambiar foto':'Foto'}<input type="file" accept="image/*" hidden onchange="subirFotos(this.files,${p.id})"></label> <button class="s" onclick="precio(${p.id})">Precio</button> <button class="s" onclick="prodUp(${p.id},{activo:${!p.activo}})">${p.activo?'Ocultar':'Mostrar'}</button></div></div>`).join('')}`;
   $('#v').insertAdjacentHTML('afterbegin',subAdm());
@@ -176,8 +176,14 @@ async function importar(inp){
       out.set(codigo,{codigo,nombre,precio,categoria_id:await gid(cats,'categorias',cn),marca_id:await gid(mar,'marcas',g(r,'marca')),familia:String(g(r,'familia')).trim(),unidad,activo});
     }
     const lista=[...out.values()];
+    if(!lista.length)throw new Error('No se encontraron productos en la planilla');
+    let sobran=[];
+    if($('#ielim')?.checked){const cods=new Set(lista.map(x=>x.codigo));sobran=S.prods.filter(p=>!cods.has(p.codigo))}
+    if(sobran.length&&!confirm('Se van a ELIMINAR '+sobran.length+' productos que no están en la planilla (por ejemplo: '+sobran.slice(0,5).map(p=>p.codigo).join(', ')+(sobran.length>5?'...':'')+').'+(omit?'\n\nOjo: '+omit+' filas de la planilla se omitieron por faltar datos.':'')+'\n\nLos pedidos ya hechos se conservan y las promociones que los incluyan se ocultarán. ¿Continuar?')){inp.value='';return}
     for(let i=0;i<lista.length;i+=200){const {error}=await sb.from('productos').upsert(lista.slice(i,i+200),{onConflict:'codigo'});if(error)throw error}
-    alert('Productos importados: '+lista.length+' ('+lista.filter(x=>x.activo).length+' a la venta, el resto oculto)'+(omit?'. Filas omitidas (sin código, producto o precio): '+omit:''));
+    let borrados=0;
+    for(let i=0;i<sobran.length;i+=100){const ids=sobran.slice(i,i+100).map(p=>p.id);const {error}=await sb.from('productos').delete().in('id',ids);if(error)throw error;borrados+=ids.length}
+    alert('Productos importados: '+lista.length+(borrados?'. Productos eliminados: '+borrados:'')+' ('+lista.filter(x=>x.activo).length+' a la venta, el resto oculto)'+(omit?'. Filas omitidas (sin código, producto o precio): '+omit:''));
     await cargar();render();
   }catch(e){alert('No se pudo importar: '+(e.message||e))}
 }
