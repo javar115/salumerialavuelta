@@ -375,7 +375,7 @@ function datosPago(){
   const a=S.aj||{};
   if(!a.alias_transferencia&&!a.cvu_transferencia)return 'Te enviaremos los datos para transferir.';
   const fila=(n,v)=>v?`${n}: <b>${esc(v)}</b> <button class="s np" style="padding:4px 10px;font-size:14px" data-v="${esc(v)}" onclick="copiar(this.dataset.v)">Copiar</button><br>`:'';
-  return `Gracias por tu compra! Te comparto mis datos para que puedas enviarme pesos a través de Mercado Pago 👇<br>${fila('Alias',a.alias_transferencia)}${fila('CVU',a.cvu_transferencia)}${a.titular_transferencia?`Nombre: <b>${esc(a.titular_transferencia)}</b>`:''}`;
+  return `Gracias por tu compra! Te comparto mis datos para que puedas enviarme pesos a través de Mercado Pago 👇<br>${fila('Alias',a.alias_transferencia)}${fila('CVU',a.cvu_transferencia)}${a.titular_transferencia?`Nombre: <b>${esc(a.titular_transferencia)}</b>`:''}<br><br><b>IMPORTANTE!</b> Compartinos el comprobante de la transferencia por WhatsApp sin omitir informarnos el número de pedido. Muchas gracias`;
 }
 function pagoHtml(){
   const fp=S.ped.forma_pago,al=S.aj?.alias_transferencia,ti=S.aj?.titular_transferencia;
