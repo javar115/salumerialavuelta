@@ -115,7 +115,7 @@ async function cerrar(e){
   if(error)return alert(error.message);
   S.tab='hist';await cargarPed();render();
 }
-const detalle=(p,x='')=>`<div class="card" id="o${p.id}"><div class="row"><b>${p.numero||'(sin número)'}</b><span>${(ESTADOS[p.estado]||p.estado).toUpperCase()}${p.estado=='cancelado'?'':' · '+(x?(p.cobro=='cobrado'?'COBRADO':'POR COBRAR'):(p.cobro=='cobrado'?'PAGADO':'PAGO PENDIENTE'))}</span></div><small>${new Date(p.enviado_at||p.created_at).toLocaleString('es-AR')}</small>${p.promo_nombre?`<br><b>🏷️ Promoción: ${esc(p.promo_nombre)}</b>`:''}${p.forma_pago?`<br>Forma de pago: <b>${p.forma_pago=='transferencia'?'Transferencia':'Efectivo'}</b>`:''}${!x&&p.forma_pago=='transferencia'&&p.cobro!='cobrado'&&p.estado!='cancelado'&&S.aj?.alias_transferencia?`<br>Alias para transferir: <b>${esc(S.aj.alias_transferencia)}</b>${S.aj.titular_transferencia?' · Titular: '+esc(S.aj.titular_transferencia):''}`:''}${x}<ul>${p.pedido_items.map(i=>`<li>${i.cantidad} × ${esc(i.nombre)} (${esc(i.unidad)}) · Cód. ${esc(i.codigo)}</li>`).join('')}</ul>${p.notas?`<p><i>${esc(p.notas)}</i></p>`:''}<b>Total: ${money(total(p))}</b> <small>IVA incluido</small><br><button class="s np" onclick="imprimir('${p.id}')">Imprimir / guardar PDF</button>${p.estado=='cancelado'&&!x?` <button class="s np" onclick="borrarMio('${p.id}')">Eliminar pedido</button>`:''}</div>`;
+const detalle=(p,x='')=>`<div class="card" id="o${p.id}"><div class="row"><b>${p.numero||'(sin número)'}</b><span>${(ESTADOS[p.estado]||p.estado).toUpperCase()}${p.estado=='cancelado'?'':' · '+(x?(p.cobro=='cobrado'?'COBRADO':'POR COBRAR'):(p.cobro=='cobrado'?'PAGADO':'PAGO PENDIENTE'))}</span></div><small>${new Date(p.enviado_at||p.created_at).toLocaleString('es-AR')}</small>${p.promo_nombre?`<br><b>🏷️ Promoción: ${esc(p.promo_nombre)}</b>`:''}${p.forma_pago?`<br>Forma de pago: <b>${p.forma_pago=='transferencia'?'Transferencia':'Efectivo'}</b>`:''}${!x&&p.forma_pago=='transferencia'&&p.cobro!='cobrado'&&p.estado!='cancelado'?`<div class="aviso" style="margin:8px 0">${datosPago()}</div>`:''}${x}<ul>${p.pedido_items.map(i=>`<li>${i.cantidad} × ${esc(i.nombre)} (${esc(i.unidad)}) · Cód. ${esc(i.codigo)}</li>`).join('')}</ul>${p.notas?`<p><i>${esc(p.notas)}</i></p>`:''}<b>Total: ${money(total(p))}</b> <small>IVA incluido</small><br><button class="s np" onclick="imprimir('${p.id}')">Imprimir / guardar PDF</button>${p.estado=='cancelado'&&!x?` <button class="s np" onclick="borrarMio('${p.id}')">Eliminar pedido</button>`:''}</div>`;
 async function vHist(){
   const {data}=await sb.from('pedidos').select('*,pedido_items(*)').eq('persona_id',S.user.id).neq('estado','borrador').order('created_at',{ascending:false});
   $('#v').innerHTML=(data||[]).map(p=>detalle(p)).join('')||'<p>Todavía no enviaste pedidos.</p>';
@@ -237,7 +237,7 @@ async function pedirPromo(id){
   let e=(await sb.from('pedido_items').insert(rows)).error;
   if(!e)e=(await sb.from('pedidos').update({estado:'enviado'}).eq('id',data.id)).error;
   if(e){await sb.from('pedidos').update({estado:'cancelado'}).eq('id',data.id);return alert(e.message)}
-  alert('Pedido de la promoción enviado.'+(fp=='transferencia'&&S.aj?.alias_transferencia?'\nAlias para transferir: '+S.aj.alias_transferencia:''));S.tab='hist';render();
+  alert('Pedido de la promoción enviado.'+(fp=='transferencia'?'\nVas a ver los datos para transferir en tu pedido.':''));S.tab='hist';render();
 }
 async function vPromos(){
   const {data}=await sb.from('promociones').select('*,promocion_items(producto_id,cantidad)').order('created_at',{ascending:false});
@@ -333,7 +333,7 @@ async function vPanel(){
   <h3>Cobros del mes</h3><div class="row" style="align-items:stretch">${kpi('Por cobrar',cnt(xc),money(S.pc.xc))}${kpi('Cobrados',cnt(cb),money(S.pc.cob))}</div>
   <h3>Pedidos por localidad</h3><div class="card">${locs.map(([k,x])=>`<div class="row"><span>${esc(k)}</span><b>${x}</b></div>`).join('')||'<p>Sin pedidos este mes.</p>'}</div>
   <h3>Ventas mensuales</h3><div class="card">${hist.slice(0,12).map(h=>`<div style="margin:10px 0"><div class="row"><b>${esc(nom(h.mes))}${cier.has(h.mes)?' ✔ cerrado':''}</b><span>${money(h.ventas)}</span></div><div style="background:var(--o);height:10px;border-radius:5px;width:${Math.max(2,Math.round(h.ventas/maxV*100))}%"></div><small>${h.pedidos} pedidos · ticket ${money(h.pedidos?h.ventas/h.pedidos:0)}</small></div>`).join('')||'<p>Todavía no hay pedidos.</p>'}</div>
-  <button onclick="cerrarMes()">${c?'Volver a cerrar':'Cerrar'} ${esc(nom(mes))}</button>${c?`<p><small>Cerrado el ${new Date(c.cerrado_at).toLocaleDateString('es-AR')}: ${c.pedidos} pedidos, ${money(c.ventas)}, cobrado ${money(c.cobrado)}, por cobrar ${money(c.por_cobrar)}.</small></p>`:''}<h3>Datos para transferencias</h3><div class="card"><input id="al" placeholder="Alias (ej. salumeria.lavuelta)" value="${esc(S.aj?.alias_transferencia)}"><input id="ti" placeholder="Titular (opcional)" value="${esc(S.aj?.titular_transferencia)}"><button onclick="guardarAlias()">Guardar datos</button><br><small>Se muestran al cliente cuando elige pagar por transferencia.</small></div>`;
+  <button onclick="cerrarMes()">${c?'Volver a cerrar':'Cerrar'} ${esc(nom(mes))}</button>${c?`<p><small>Cerrado el ${new Date(c.cerrado_at).toLocaleDateString('es-AR')}: ${c.pedidos} pedidos, ${money(c.ventas)}, cobrado ${money(c.cobrado)}, por cobrar ${money(c.por_cobrar)}.</small></p>`:''}<h3>Datos para transferencias</h3><div class="card"><input id="al" placeholder="Alias (ej. salumeria.lavuelta)" value="${esc(S.aj?.alias_transferencia)}"><input id="cv" placeholder="CVU" value="${esc(S.aj?.cvu_transferencia)}"><input id="ti" placeholder="Nombre del titular" value="${esc(S.aj?.titular_transferencia)}"><button onclick="guardarAlias()">Guardar datos</button><br><small>Se muestran al cliente cuando elige pagar por transferencia.</small></div>`;
 }
 async function cerrarMes(){
   const c=S.pc;if(!c)return;
@@ -370,9 +370,16 @@ async function salir(){
   if(matchMedia('(display-mode: standalone)').matches)window.close();
   location.reload();
 }
+const copiar=t=>navigator.clipboard.writeText(t).then(()=>alert('Copiado: '+t));
+function datosPago(){
+  const a=S.aj||{};
+  if(!a.alias_transferencia&&!a.cvu_transferencia)return 'Te enviaremos los datos para transferir.';
+  const fila=(n,v)=>v?`${n}: <b>${esc(v)}</b> <button class="s np" style="padding:4px 10px;font-size:14px" data-v="${esc(v)}" onclick="copiar(this.dataset.v)">Copiar</button><br>`:'';
+  return `Gracias por tu compra! Te comparto mis datos para que puedas enviarme pesos a través de Mercado Pago 👇<br>${fila('Alias',a.alias_transferencia)}${fila('CVU',a.cvu_transferencia)}${a.titular_transferencia?`Nombre: <b>${esc(a.titular_transferencia)}</b>`:''}`;
+}
 function pagoHtml(){
   const fp=S.ped.forma_pago,al=S.aj?.alias_transferencia,ti=S.aj?.titular_transferencia;
-  return `<h3>Forma de pago</h3><div class="row" style="justify-content:flex-start"><button class="${fp=='transferencia'?'':'s'}" onclick="setPago('transferencia')">Transferencia</button><button class="${fp=='efectivo'?'':'s'}" onclick="setPago('efectivo')">Efectivo</button></div>${fp=='transferencia'?`<div class="aviso" style="margin:8px 0">${al?`Alias para transferir: <b>${esc(al)}</b>${ti?' · Titular: '+esc(ti):''}`:'Te enviaremos los datos para transferir.'}</div>`:''}${fp?'':'<small>Elegí cómo vas a pagar para poder enviar el pedido.</small>'}`;
+  return `<h3>Forma de pago</h3><div class="row" style="justify-content:flex-start"><button class="${fp=='transferencia'?'':'s'}" onclick="setPago('transferencia')">Transferencia</button><button class="${fp=='efectivo'?'':'s'}" onclick="setPago('efectivo')">Efectivo</button></div>${fp=='transferencia'?`<div class="aviso" style="margin:8px 0">${datosPago()}</div>`:''}${fp?'':'<small>Elegí cómo vas a pagar para poder enviar el pedido.</small>'}`;
 }
 async function setPago(f){
   S.ped.notas=$('#notas')?.value||S.ped.notas;
@@ -381,7 +388,7 @@ async function setPago(f){
   S.ped.forma_pago=f;vPed();
 }
 async function guardarAlias(){
-  const {error}=await sb.from('ajustes').upsert([{clave:'alias_transferencia',valor:$('#al').value.trim()},{clave:'titular_transferencia',valor:$('#ti').value.trim()}]);
+  const {error}=await sb.from('ajustes').upsert([{clave:'alias_transferencia',valor:$('#al').value.trim()},{clave:'cvu_transferencia',valor:$('#cv').value.trim()},{clave:'titular_transferencia',valor:$('#ti').value.trim()}]);
   if(error)return alert(error.message);
   alert('Datos guardados.');await cargar();vPanel();
 }
